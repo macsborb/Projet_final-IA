@@ -1,66 +1,118 @@
-import os
 import cv2
 import numpy as np
-from PIL import Image
-from sklearn.model_selection import train_test_split
-import shutil
+import os
 
-def clean_and_verify_images(image_dir):
-    """Verify images and clean metadata if needed."""
-    verified_images = []
-    for filename in os.listdir(image_dir):
-        filepath = os.path.join(image_dir, filename)
-        try:
-            with Image.open(filepath) as img:
-                img.verify()  # Check image integrity
-            verified_images.append(filepath)
-        except (IOError, SyntaxError):
-            print(f"Corrupted image detected and skipped: {filepath}")
-    return verified_images
+def load_yolo():
+    # Chargement du modèle YOLOv3
+    net = cv2.dnn.readNet("yolov3.weights", "yolov3.cfg")
+    
+    # Chargement des classes
+    with open("coco.names", "r") as f:
+        classes = [line.strip() for line in f.readlines()]
+    
+    return net, classes
 
-def resize_images(image_paths, output_dir, target_size=(224, 224)):
-    """Resize images to uniform dimensions."""
-    os.makedirs(output_dir, exist_ok=True)
-    for image_path in image_paths:
-        try:
-            img = cv2.imread(image_path)
-            resized_img = cv2.resize(img, target_size)
+def detect_dog(image_path, net, classes, output_dir):
+    # Chargement de l'image
+    image = cv2.imread(image_path)
+    height, width, _ = image.shape
+    print(f"Image loaded with shape: {image.shape}")
+    
+    # Conversion de l'image pour YOLO
+    blob = cv2.dnn.blobFromImage(image, 0.00392, (416, 416), (0, 0, 0), True, crop=False)
+    net.setInput(blob)
+    
+    # Récupération des couches de sortie
+    layer_names = net.getLayerNames()
+    output_layers = [layer_names[i - 1] for i in net.getUnconnectedOutLayers()]
+    
+    # Détection d'objets
+    layer_outputs = net.forward(output_layers)
+
+    boxes = []
+    confidences = []
+    class_ids = []
+
+    # Parcours des sorties de YOLO
+    for output in layer_outputs:
+        for detection in output:
+            scores = detection[5:]
+            class_id = np.argmax(scores)
+            confidence = scores[class_id]
+            if confidence > 0.75 and classes[class_id] == "dog":  # Rechercher uniquement les chiens
+                center_x = int(detection[0] * width)
+                center_y = int(detection[1] * height)
+                w = int(detection[2] * width)
+                h = int(detection[3] * height)
+                
+                # Coordonnées du rectangle englobant
+                x = int(center_x - w / 2)
+                y = int(center_y - h / 2)
+                
+                boxes.append([x, y, w, h])
+                confidences.append(float(confidence))
+                class_ids.append(class_id)
+
+    # Application de la suppression des doublons avec Non-Max Suppression
+    indices = cv2.dnn.NMSBoxes(boxes, confidences, 0.5, 0.4)
+    
+    if len(indices) > 0:
+        for i in indices.flatten():
+            x, y, w, h = boxes[i]
+            label = str(classes[class_ids[i]]) + " " + str(round(confidences[i], 2))
+            print(f"Dog detected: {label} at ({x}, {y}, {w}, {h})")
+
+            # Redimensionner l'image à la taille du carré autour du chien
+            # Utilisation de la plus grande dimension (w ou h) pour obtenir un carré
+            side_length = max(w, h)
+            
+            # Calcul du carré centré sur le chien
+            x_centered = max(x - (side_length - w) // 2, 0)
+            y_centered = max(y - (side_length - h) // 2, 0)
+            
+            # Découpe du carré autour du chien
+            cropped_image = image[y_centered:y_centered + side_length, x_centered:x_centered + side_length]
+
+            # Redimensionner l'image pour une taille maximale de 244x244 tout en gardant les proportions
+            max_size = 244
+            aspect_ratio = width / height
+
+            if width > height:
+                new_width = max_size
+                new_height = int(max_size / aspect_ratio)
+            else:
+                new_height = max_size
+                new_width = int(max_size * aspect_ratio)
+
+            resized_image = cv2.resize(cropped_image, (new_width, new_height))
+
+            # Enregistrer l'image redimensionnée dans le dossier de sortie
             output_path = os.path.join(output_dir, os.path.basename(image_path))
-            cv2.imwrite(output_path, resized_img)
-        except Exception as e:
-            print(f"Error resizing image {image_path}: {e}")
+            cv2.imwrite(output_path, resized_image)
+            print(f"Resized image saved to {output_path}")
 
-def split_data(image_dir, output_dir, train_ratio=0.7, val_ratio=0.15):
-    """Split images into training, validation, and test sets."""
-    image_paths = [os.path.join(image_dir, img) for img in os.listdir(image_dir)]
-    train_val, test = train_test_split(image_paths, test_size=1 - train_ratio - val_ratio, random_state=42)
-    train, val = train_test_split(train_val, test_size=val_ratio / (train_ratio + val_ratio), random_state=42)
-
-    for split, split_name in zip([train, val, test], ["train", "val", "test"]):
-        split_dir = os.path.join(output_dir, split_name)
-        os.makedirs(split_dir, exist_ok=True)
-        for file in split:
-            shutil.copy(file, split_dir)
-
-if __name__ == "__main__":
-    # Paths and parameters
-    raw_image_dir = "./n02111889-Samoyed"
-    clean_image_dir = "clean_images"
-    resized_image_dir = "resized_images"
-    dataset_dir = "dataset"
-    log_file = "preprocessing_log.txt"
+    else:
+        print("No dog detected.")
 
 
-    # Step 1: Clean and verify images
-    print("Step 1: Clean and verify images.")
-    verified_images = clean_and_verify_images(raw_image_dir)
+def process_images_in_directory(directory, net, classes):
+    for root, dirs, files in os.walk(directory):  # Parcours récursif des dossiers
+        # Créer un sous-dossier "resize" dans chaque dossier où les images seront enregistrées
+        output_dir = os.path.join(root, 'resize')
+        os.makedirs(output_dir, exist_ok=True)  # Crée le dossier "resize" si nécessaire
+        
+        for file in files:
+            if file.endswith(('.jpg', '.png', '.jpeg')):  # Filtrer uniquement les images
+                image_path = os.path.join(root, file)
+                print(f"Processing {image_path}...")
+                detect_dog(image_path, net, classes, output_dir)
 
-    # Step 2: Resize images
-    print("Step 2: Resize images to {224}x{224}.")
-    resize_images(verified_images, resized_image_dir)
 
-    # Step 3: Split data into train/val/test
-    print("Step 3: Split data into training (70%), validation (15%), and test (15%) sets.")
-    split_data(resized_image_dir, dataset_dir)
+# Chargement du modèle et des classes
+net, classes = load_yolo()
 
-    print("Image preprocessing completed. Check the log file for details.")
+# Dossier contenant les images
+directory = "Images"  # Remplacez par votre chemin de dossier
+
+# Traitement des images dans le dossier
+process_images_in_directory(directory, net, classes)
