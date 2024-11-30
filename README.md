@@ -1,6 +1,6 @@
-# Projet de Détection de Chiens avec YOLOv3
+# Projet de Détection de Chiens avec utilisation de YOLOv3
 
-Ce projet utilise le modèle YOLOv3 pour détecter des chiens dans des images. Il redimensionne ensuite les images contenant des chiens pour qu'elles soient carrées, avec une taille maximale de 244x244 pixels, et les enregistre dans un sous-dossier `resize` de chaque dossier d'image.
+Ce projet utilise le modèle YOLOv3 pour détecter des chiens dans des images. Il redimensionne ensuite les images contenant des chiens pour qu'elles soient carrées, avec une taille maximale de 300x300 pixels, et les enregistre dans un sous-dossier `resize` de chaque dossier d'image.
 
 ## Prérequis
 
@@ -60,9 +60,6 @@ Avant de commencer, assurez-vous de suivre ces étapes :
     Projet/
     ├── Images/
     │   └── dossier_des_races_de_chien/
-    │       ├── image1.jpg
-    │       ├── image2.png
-    │       └── ...
     │       └── resize/
     │           ├── image1_resized.jpg
     │           ├── image2_resized.jpg
@@ -83,5 +80,3 @@ Avant de commencer, assurez-vous de suivre ces étapes :
 Si vous avez des questions ou des problèmes avec l'installation ou l'exécution du projet, n'hésitez pas à ouvrir une **issue** sur GitHub, et je vous aiderai avec plaisir.
 
 ---
-
-Merci d'utiliser ce projet de détection d'objets avec YOLOv3 !
